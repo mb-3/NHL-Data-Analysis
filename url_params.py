@@ -1,0 +1,5 @@
+access_level = 'trial'
+language_code = 'en'
+season_year = '2025'
+season_type = 'REG'
+format = 'json'

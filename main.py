@@ -28,7 +28,12 @@ connection = psycopg2.connect(
 
 cursor = connection.cursor()
 
-def update_team_id():
+def get_teamid(team):
+    response = cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team}';")
+    team_id = cursor.fetchone()[0]
+    return team_id
+
+def post_team_id():
     teams = {}
     url = "https://api.sportradar.com/nhl/trial/v7/en/league/hierarchy.json"
     response = requests.get(url, headers=headers)
@@ -45,8 +50,6 @@ def update_team_id():
     connection.commit()
     return teams
 
-# team_dict = update_team_id()
-
 def get_team_info(team_name):
     cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team_name}';")
     team = cursor.fetchone()
@@ -56,7 +59,52 @@ def get_team_info(team_name):
     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
     return avg_data, tot_data
 
-# print(get_team_info(team_dict))
+def get_shot_info(team):
+    team_id = get_teamid(team)
+    url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team_id}/analytics.json"
+    response = requests.get(url, headers=headers)
+
+    ## Creating AVG dataset and posting to DB
+    avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
+    avg_data = avg_data.drop(avg_data.filter(regex="^shots.").columns, axis=1)
+    avg_data['team'] = 'Devils'
+    avg_data['line_type'] = 'Devils_avg'
+    # avg_data['team'] = selected_team
+    # avg_data['line_type'] = f"{selected_team}_avg"
+
+    ## Creating TOTALS dataset and posting to DB
+    tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
+    tot_data = tot_data.drop(tot_data.filter(regex="^shots.").columns, axis=1)
+    tot_data['team'] = 'Devils'
+    tot_data['line_type'] = 'Devils_total'
+    # tot_data['team'] = selected_team
+    # tot_data['line_type'] = f"{selected_team}_total"
+    return avg_data, tot_data
+
+
+def pull_team_stats(team):
+    team_id = get_teamid(team)
+    url = f"https://api.sportradar.com/nhl/{access_level}/v7/{language_code}/seasons/{season_year}/{season_type}/teams/{team_id}/statistics.{format}"
+    response = requests.get(url, headers=headers)
+    data = response.json()['own_record']['statistics']['total']
+    df = pd.DataFrame([data])
+    df_filtered = df[['shots', 'goals', 'games_played', 'hits']]
+    df_formatted = df_filtered.rename(columns={
+        'shots': 'shot_total',
+        'goals': 'goals_total',
+        'games_played': 'games_total',
+        'hits': 'hits_total'
+        })
+    df_formatted['name'] = team
+    df_formatted['team_id'] = team_id
+    df_formatted['wins_total'] = response.json()['own_record']['goaltending']['total']['wins']
+    df_formatted['loss_total'] = response.json()['own_record']['goaltending']['total']['losses']
+    df_formatted['saves_total'] = response.json()['own_record']['goaltending']['total']['saves']
+    df_formatted['powerplay_perc'] = response.json()['own_record']['statistics']['powerplay']['percentage']
+    df_formatted['penkill_perc'] = response.json()['own_record']['statistics']['shorthanded']['kill_pct']
+    df_formatted['save_perc'] = response.json()['own_record']['goaltending']['total']['saves_pct']
+    df_formatted['goals_allowed_total'] = response.json()['own_record']['goaltending']['total']['goals_against']
+    return df_formatted
 
 if __name__ == "__main__":
     # update_team_id()
