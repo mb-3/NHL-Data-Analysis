@@ -11,7 +11,6 @@ API_KEY = os.getenv("API_KEY")
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PW")
 
-print(API_KEY)
 headers = {
     "accept": "application/json",
     "x-api-key": API_KEY
