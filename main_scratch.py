@@ -149,7 +149,7 @@ def get_next_opponent(api_key, after_date):
         if sched <= after_date:
             continue
         # check teams
-        for competitor in game["home", "away"] if “home” in game else game.get("competitors", []):  # adjust depending on schema
+        for competitor in game["home", "away"] if 'home' in game else game.get("competitors", []):  # adjust depending on schema
             pass
         # better schema inspection (look at “home” and “away” keys)
         if game["home"]["id"] == team_sr_id or game["away"]["id"] == team_sr_id:
@@ -179,13 +179,38 @@ def get_next_opponent(api_key, after_date):
     }
 
 def update_team_stats(df: pd.DataFrame, table_name: str, engine_url: str):
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
     engine = create_engine(engine_url)
-
+    upsert_query = text(f"""
+        INSERT INTO {table_name} (name, team_id, shot_total, saves_total, goals_total, 
+            powerplay_perc, save_perc, penkill_perc, wins_total, loss_total, games_total, hits_total, goals_allowed_total)
+        VALUES (:name, :team_id, :shot_total, :saves_total, :goals_total, 
+            :powerplay_perc, :save_perc, :penkill_perc, :wins_total, :loss_total, :games_total, :hits_total, :goals_allowed_total)
+        ON CONFLICT (name)
+        DO UPDATE SET
+            shot_total = EXCLUDED.shot_total,
+            saves_total = EXCLUDED.saves_total,
+            goals_total = EXCLUDED.goals_total,
+            powerplay_perc = EXCLUDED.powerplay_perc,
+            save_perc = EXCLUDED.save_perc,
+            penkill_perc = EXCLUDED.penkill_perc,
+            wins_total = EXCLUDED.wins_total,
+            loss_total = EXCLUDED.loss_total,
+            games_total = EXCLUDED.games_total,
+            hits_total = EXCLUDED.hits_total,
+            goals_allowed_total = EXCLUDED.goals_allowed_total;
+    """)
+    with engine.begin() as conn:
+        conn.execute(upsert_query, df.to_dict(orient='records'))
 
 # with connection as conn:
 
-print(post_team_stats('Devils'))
+engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+
+df = pull_team_stats('Devils')
+update_team_stats(df, "init.team_info", engine_url)
+
+print("Data successfully synced to PostgreSQL!")
 
 
 # options_dict = gen_team_dict()

@@ -11,7 +11,6 @@ API_KEY = os.getenv("API_KEY")
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PW")
 
-print(API_KEY)
 headers = {
     "accept": "application/json",
     "x-api-key": API_KEY
@@ -25,13 +24,14 @@ connection = psycopg2.connect(
     port="5432"
 )
 
-
 cursor = connection.cursor()
+
 
 def get_teamid(team):
     response = cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team}';")
     team_id = cursor.fetchone()[0]
     return team_id
+
 
 def post_team_id():
     teams = {}
@@ -50,6 +50,7 @@ def post_team_id():
     connection.commit()
     return teams
 
+
 def get_team_info(team_name):
     cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team_name}';")
     team = cursor.fetchone()
@@ -58,6 +59,7 @@ def get_team_info(team_name):
     avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
     return avg_data, tot_data
+
 
 def get_shot_info(team):
     team_id = get_teamid(team)
@@ -106,6 +108,38 @@ def pull_team_stats(team):
     df_formatted['goals_allowed_total'] = response.json()['own_record']['goaltending']['total']['goals_against']
     return df_formatted
 
+
+def update_team_stats(df: pd.DataFrame, table_name: str, engine_url: str):
+    from sqlalchemy import create_engine, text
+    engine = create_engine(engine_url)
+    upsert_query = text(f"""
+        INSERT INTO {table_name} (name, team_id, shot_total, saves_total, goals_total, 
+            powerplay_perc, save_perc, penkill_perc, wins_total, loss_total, games_total, hits_total, goals_allowed_total)
+        VALUES (:name, :team_id, :shot_total, :saves_total, :goals_total, 
+            :powerplay_perc, :save_perc, :penkill_perc, :wins_total, :loss_total, :games_total, :hits_total, :goals_allowed_total)
+        ON CONFLICT (name)
+        DO UPDATE SET
+            shot_total = EXCLUDED.shot_total,
+            saves_total = EXCLUDED.saves_total,
+            goals_total = EXCLUDED.goals_total,
+            powerplay_perc = EXCLUDED.powerplay_perc,
+            save_perc = EXCLUDED.save_perc,
+            penkill_perc = EXCLUDED.penkill_perc,
+            wins_total = EXCLUDED.wins_total,
+            loss_total = EXCLUDED.loss_total,
+            games_total = EXCLUDED.games_total,
+            hits_total = EXCLUDED.hits_total,
+            goals_allowed_total = EXCLUDED.goals_allowed_total;
+    """)
+    with engine.begin() as conn:
+        conn.execute(upsert_query, df.to_dict(orient='records'))
+
 if __name__ == "__main__":
     # update_team_id()
-    print(get_team_info('Devils'))
+    engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+
+    df = pull_team_stats('Devils')
+
+    update_team_stats(df, "init.team_info", engine_url)
+
+    print("Data successfully synced to PostgreSQL!")
