@@ -134,7 +134,6 @@ def pull_team_stats(team):
 
 def get_next_opponent(api_key, after_date):
     # Step 1: Fetch schedule for date onward (you may choose multiple dates or full season)
-    # Here we'll fetch the daily schedule for each date starting from `after_date`
     date_str = after_date.strftime("%Y-%m-%d")
     url = f"https://api.sportradar.com/nhl/trial/v7/en/games/{date_str}/schedule.json?api_key={api_key}"
     resp = requests.get(url)
