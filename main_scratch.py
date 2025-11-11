@@ -5,7 +5,7 @@ import tkinter as tk
 from url_params import *
 from tkinter import ttk
 from pandas import json_normalize
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 
@@ -203,17 +203,80 @@ def update_team_stats(df: pd.DataFrame, table_name: str, engine_url: str):
     with engine.begin() as conn:
         conn.execute(upsert_query, df.to_dict(orient='records'))
 
-# with connection as conn:
 
-engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+def post_season_schedule(year):
+    url = f"https://api.sportradar.com/nhl/{access_level}/v7/{language_code}/games/{year}/{season_type}/schedule.{format}"
+    name_fix = {
+    "Leafs": "Maple Leafs",
+    "Wings": "Red Wings",
+    "Jackets": "Blue Jackets",
+    "Knights": "Golden Knights"
+    }  
+    response = requests.get(url, headers=headers)
+    data = response.json()['games']
+    count = 0
+    games = []
+    for i in data:
+        home_short = i['home']['name'].split()[-1]
+        away_short = i['away']['name'].split()[-1]
+        if home_short in name_fix:
+            home_short = name_fix[home_short]
+        if away_short in name_fix:
+            away_short = name_fix[away_short]
+        games.append({
+            "Record": count,
+            "Date": pd.to_datetime(i['scheduled'], utc=True),
+            "home_team": i['home']['name'],
+            "home_alias": i['home']['alias'],
+            "home_id": i['home']['id'],
+            "away_team": i['away']['name'],
+            "away_alias": i['away']['alias'],
+            "away_id": i['away']['id'],
+            "season_year": '2025',
+            "home_team_short": home_short,
+            "away_team_short": away_short
+        })
+        count += 1
+    df = pd.DataFrame(games)
+    engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+    engine = create_engine(engine_url)
+    df.to_sql(
+        name="season_schedule",
+        con=engine,
+        schema="init",
+        if_exists="append",
+        index=False
+    )
 
-df = pull_team_stats('Devils')
-update_team_stats(df, "init.team_info", engine_url)
+def opponent_lookup_nextgame(team):
+    lookup_name = team
+    today = datetime.now(timezone.utc)
+    query = text("""
+        SELECT
+            CASE
+                WHEN home_team = :team OR home_team_short = :team THEN away_team_short
+                ELSE home_team_short
+            END AS opponent,
+            "Date",
+            home_team,
+            away_team
+        FROM init.season_schedule
+        WHERE (home_team = :team OR home_team_short = :team OR away_team_short = :team OR away_team = :team)
+        AND "Date" >= :today
+        ORDER BY "Date" ASC
+        LIMIT 1;
+    """)
+    engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+    engine = create_engine(engine_url)
+    next_game = pd.read_sql(query, engine, params={"team": lookup_name, "today": today})
+    if not next_game.empty:
+        opponent = next_game.iloc[0]['opponent']
+        return opponent
+    else:
+        return "No upcoming games found."
 
-print("Data successfully synced to PostgreSQL!")
+opponent_lookup_nextgame("Devils")
 
-
-# options_dict = gen_team_dict()
 
 # root = tk.Tk()
 # root.title("Select an Option")
