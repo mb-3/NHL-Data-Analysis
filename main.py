@@ -6,6 +6,7 @@ from tkinter import ttk
 from pandas import json_normalize
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 
@@ -55,37 +56,37 @@ def post_team_id():
     return teams
 
 
-def get_team_info(team_name):
-    cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team_name}';")
-    team = cursor.fetchone()
-    url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team[0]}/analytics.json"
-    response = requests.get(url, headers=headers)
-    avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
-    tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
-    return avg_data, tot_data
+# def get_team_info(team_name):
+#     cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team_name}';")
+#     team = cursor.fetchone()
+#     url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team[0]}/analytics.json"
+#     response = requests.get(url, headers=headers)
+#     avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
+#     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
+#     return avg_data, tot_data
 
 
-def get_shot_info(team):
-    team_id = get_teamid(team)
-    url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team_id}/analytics.json"
-    response = requests.get(url, headers=headers)
+# def get_shot_info(team):
+#     team_id = get_teamid(team)
+#     url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team_id}/analytics.json"
+#     response = requests.get(url, headers=headers)
 
-    ## Creating AVG dataset and posting to DB
-    avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
-    avg_data = avg_data.drop(avg_data.filter(regex="^shots.").columns, axis=1)
-    avg_data['team'] = 'Devils'
-    avg_data['line_type'] = 'Devils_avg'
-    # avg_data['team'] = selected_team
-    # avg_data['line_type'] = f"{selected_team}_avg"
+#     ## Creating AVG dataset and posting to DB
+#     avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
+#     avg_data = avg_data.drop(avg_data.filter(regex="^shots.").columns, axis=1)
+#     avg_data['team'] = 'Devils'
+#     avg_data['line_type'] = 'Devils_avg'
+#     # avg_data['team'] = selected_team
+#     # avg_data['line_type'] = f"{selected_team}_avg"
 
-    ## Creating TOTALS dataset and posting to DB
-    tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
-    tot_data = tot_data.drop(tot_data.filter(regex="^shots.").columns, axis=1)
-    tot_data['team'] = 'Devils'
-    tot_data['line_type'] = 'Devils_total'
-    # tot_data['team'] = selected_team
-    # tot_data['line_type'] = f"{selected_team}_total"
-    return avg_data, tot_data
+#     ## Creating TOTALS dataset and posting to DB
+#     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
+#     tot_data = tot_data.drop(tot_data.filter(regex="^shots.").columns, axis=1)
+#     tot_data['team'] = 'Devils'
+#     tot_data['line_type'] = 'Devils_total'
+#     # tot_data['team'] = selected_team
+#     # tot_data['line_type'] = f"{selected_team}_total"
+#     return avg_data, tot_data
 
 
 def get_team_stats(team):
@@ -135,9 +136,20 @@ def update_team_stats(df: pd.DataFrame, table_name: str):
             hits_total = EXCLUDED.hits_total,
             goals_allowed_total = EXCLUDED.goals_allowed_total;
     """)
-    with engine.begin() as conn:
-        conn.execute(upsert_query, df.to_dict(orient='records'))
+    try:
+        with engine.begin() as conn:
+            conn.execute(upsert_query, df.to_dict(orient='records'))
+        print("Data successfully written to the database.")
 
+    except SQLAlchemyError as e:
+        # Handle SQLAlchemy-specific errors
+        print("Database write failed.")
+        print(f"Error details: {str(e)}")
+
+    except Exception as e:
+        # Catch any other unexpected Python errors
+        print("An unexpected error occurred.")
+        print(f"Error details: {str(e)}")
 
 def post_season_schedule(year):
     url = f"https://api.sportradar.com/nhl/{access_level}/v7/{language_code}/games/{year}/{season_type}/schedule.{format}"
@@ -183,6 +195,20 @@ def post_season_schedule(year):
         index=False
     )
 
+
+def team_stats_check(team):
+    lookup_name = team # team value is received from drop down input, will remain the team short name for lookup purposes
+    engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
+    engine = create_engine(engine_url)
+    query = text("""
+        SELECT * 
+        FROM init.team_info
+        WHERE name = :team 
+        LIMIT 1;
+    """)
+    result = pd.read_sql(query, engine, params={"team": lookup_name})
+    return result.empty # returns false if data exists
+
 def opponent_lookup_nextgame(team):
     lookup_name = team
     today = datetime.now(timezone.utc)
@@ -212,6 +238,20 @@ def opponent_lookup_nextgame(team):
 
 if __name__ == "__main__":
 
+    # Testing general code loop
+    test_value = 'Devils'
+    if team_stats_check(test_value): # Need to check for run date rather than data existing, data may exist but old
+        df = get_team_stats(test_value)
+        update_team_stats(df, "init.team_info")
+    else:
+        opponent = opponent_lookup_nextgame(test_value)
+        if team_stats_check(opponent):
+            df = get_team_stats(opponent)
+            update_team_stats(df, "init.team_info")
+        else:
+            print("DONE")
+            # CREATE TOTT
+
+            
     # engine_url = f"postgresql+psycopg2://postgres:{PASSWORD}@localhost:5432/nhl_db"
-    # df = pull_team_stats('Devils')
     # update_team_stats(df, "init.team_info", engine_url)
