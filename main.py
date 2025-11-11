@@ -88,7 +88,7 @@ def get_shot_info(team):
     return avg_data, tot_data
 
 
-def pull_team_stats(team):
+def get_team_stats(team):
     team_id = get_teamid(team)
     url = f"https://api.sportradar.com/nhl/{access_level}/v7/{language_code}/seasons/{season_year}/{season_type}/teams/{team_id}/statistics.{format}"
     response = requests.get(url, headers=headers)
