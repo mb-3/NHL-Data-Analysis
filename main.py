@@ -56,39 +56,6 @@ def post_team_id():
     return teams
 
 
-# def get_team_info(team_name):
-#     cursor.execute(f"SELECT team_id from init.team_id WHERE name = '{team_name}';")
-#     team = cursor.fetchone()
-#     url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team[0]}/analytics.json"
-#     response = requests.get(url, headers=headers)
-#     avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
-#     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
-#     return avg_data, tot_data
-
-
-# def get_shot_info(team):
-#     team_id = get_teamid(team)
-#     url = f"https://api.sportradar.com/nhl/trial/v7/en/seasons/2025/REG/teams/{team_id}/analytics.json"
-#     response = requests.get(url, headers=headers)
-
-#     ## Creating AVG dataset and posting to DB
-#     avg_data = json_normalize(response.json()['own_record']['statistics']['average'])
-#     avg_data = avg_data.drop(avg_data.filter(regex="^shots.").columns, axis=1)
-#     avg_data['team'] = 'Devils'
-#     avg_data['line_type'] = 'Devils_avg'
-#     # avg_data['team'] = selected_team
-#     # avg_data['line_type'] = f"{selected_team}_avg"
-
-#     ## Creating TOTALS dataset and posting to DB
-#     tot_data = json_normalize(response.json()['own_record']['statistics']['total'])
-#     tot_data = tot_data.drop(tot_data.filter(regex="^shots.").columns, axis=1)
-#     tot_data['team'] = 'Devils'
-#     tot_data['line_type'] = 'Devils_total'
-#     # tot_data['team'] = selected_team
-#     # tot_data['line_type'] = f"{selected_team}_total"
-#     return avg_data, tot_data
-
-
 def get_team_stats(team):
     team_id = get_teamid(team)
     url = f"https://api.sportradar.com/nhl/{access_level}/v7/{language_code}/seasons/{season_year}/{season_type}/teams/{team_id}/statistics.{format}"
@@ -239,17 +206,20 @@ def opponent_lookup_nextgame(team):
 if __name__ == "__main__":
 
     # Testing general code loop
-    test_value = 'Devils'
-    if team_stats_check(test_value): # Need to check for run date rather than data existing, data may exist but old
-        df = get_team_stats(test_value)
-        update_team_stats(df, "init.team_info")
-    else:
-        opponent = opponent_lookup_nextgame(test_value)
-        if team_stats_check(opponent):
-            df = get_team_stats(opponent)
+    test_value = 'Capitals'
+    flag = True
+    while flag:
+        if team_stats_check(test_value): # Need to check for run date rather than data existing, data may exist but old
+            df = get_team_stats(test_value)
             update_team_stats(df, "init.team_info")
         else:
-            print("DONE")
+            opponent = opponent_lookup_nextgame(test_value)
+            if team_stats_check(opponent):
+                df = get_team_stats(opponent)
+                update_team_stats(df, "init.team_info")
+            else:
+                flag = False
+                print("DONE")
             # CREATE TOTT
 
             
